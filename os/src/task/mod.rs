@@ -13,14 +13,19 @@ mod context;
 mod switch;
 #[allow(clippy::module_inception)]
 mod task;
+#[allow(unused_imports)]
+//use core::time;
 
+use crate::config::CLOCK_FREQ;
+use riscv::register::time;
 use crate::config::MAX_APP_NUM;
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
+//use crate::timer::get_time_ms;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
-
+pub use crate::syscall::process::TaskInfo;
 pub use context::TaskContext;
 
 /// The task manager, where all the tasks are managed.
@@ -54,10 +59,13 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            task_sys:[0;500],
+            task_time:time::read(),
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
             task.task_status = TaskStatus::Ready;
+            //task.task_sys=Vec::new();
         }
         TaskManager {
             num_app,
@@ -135,6 +143,28 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+    fn get_information(&self,ti:*mut TaskInfo){
+        let  inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let timee=(time::read()-inner.tasks[current].task_time)/(CLOCK_FREQ / 1000);
+       //let statuss=TaskStatus::Running;
+       for i in 1..=499{
+        if  inner.tasks[current].task_sys[i]==0 {continue;}
+        unsafe{
+            (*ti).syscall_times[i]=inner.tasks[current].task_sys[i];
+        }
+       }
+       unsafe{
+        (*ti).time=timee;
+        (*ti).status=TaskStatus::Running;
+       }
+      
+    }
+    fn add_syscall(&self,a:usize){
+        let  mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].task_sys[a]=1+inner.tasks[current].task_sys[a];
+    }
 }
 
 /// Run the first task in task list.
@@ -168,4 +198,19 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+///qnmd
+pub fn get_info(ti: *mut TaskInfo){
+    
+  
+
+    TASK_MANAGER.get_information(ti);
+}
+///++
+pub fn add_sys(a:usize)
+{
+
+  //  println!("*****************&&&&&&&&&&&&&&&&&&&&****{}",a);
+    trace!("kernelsys*****************************************************************{}",a);
+    TASK_MANAGER.add_syscall(a);
 }
